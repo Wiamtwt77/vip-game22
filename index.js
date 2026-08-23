@@ -1,147 +1,168 @@
-// api/index.js
-import fetch from 'node-fetch';
 
-// حالة اللعبة (يُفضل لاحقاً ربطها بقاعدة بيانات مثل Supabase لتفادي ضياعها مع Vercel Cold Starts)
-let gameState = {
-  players: [
-    { name: "ايفا", rep: 10, inventory: ["ATTACK", "STEAL", "BOOST"] },
-    { name: "لاعب_2", rep: 10, inventory: ["ATTACK", "STEAL", "BOOST"] },
-    { name: "لاعب_3", rep: 10, inventory: ["ATTACK", "STEAL", "BOOST"] }
-  ],
-  currentRound: 1,
-  alliances: {}, // { playerName: { ally: 'allyName', duration: 2 } }
-  market: ["ATTACK", "STEAL", "BOOST", "SECRET_MSG", "REVEAL_HAND"],
-  phase: "PLAY", // PLAY, VOTE, RESULTS
-  votes: {},
-  guiltyPlayer: "لاعب_2" // للعرض التجريبي
-};
-
-// دالة توليد الحدث المفاجئ عبر Z-AI (أو OpenRouter)
-async function generateAIEvent(targetPlayer, highestRepPlayer) {
-  const prompt = `أنت مدير لعبة استنتاج اجتماعي. اللاعب '${highestRepPlayer}' يمتلك أعلى سمعة ويحتكر اللعبة. واللاعب '${targetPlayer}' هو هدف الحدث. 
-  قم بتأليف "حدث مفاجئ" قصير (سطر واحد) يضرب اللاعب الأعلى سمعة أو يغير مجرى اللعبة. 
-  يجب أن يكون الحدث بصيغة درامية مبدعة باللغة العربية. لا تكتب أي مقدمات.`;
-
-  try {
-    const response = await fetch("https://api.z-ai.dev/v1/chat/completions", { // استبدلي الرابط برابط Z-AI الصحيح
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.Z_AI_KEY}`, // مفتاح Z AI
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "z-ai-model-name", // اسم النموذج
-        messages: [{ role: "user", content: prompt }]
-      })
-    });
-    
-    const data = await response.json();
-    return data.choices[0].message.content.trim();
-  } catch (error) {
-    console.error("AI API Error:", error);
-    return `حدث غامض: عاصفة من الشائعات تضرب اللاعب ${targetPlayer}!`; 
-  }
 }
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>المحكمة السرية</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1a1a1a; color: white; text-align: center; margin: 0; padding: 20px; }
+        .card { background: #333; padding: 10px; margin: 5px; border-radius: 5px; display: inline-block; border: 1px solid #555; }
+        .btn { color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 5px; margin: 5px; font-weight: bold; }
+        .buy-btn { background: #f39c12; }
+        .buy-btn:hover { background: #e67e22; }
+        .alliance-btn { background: #9b59b6; animation: pulse 2s infinite; }
+        .action-btn { background: #3498db; }
+        .warning { color: #e74c3c; font-size: 0.9em; font-weight: bold; }
+        .zone { background: #2c3e50; padding: 15px; border-radius: 10px; margin: 20px auto; max-width: 600px; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+    </style>
+</head>
+<body>
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-      return res.status(200).json(gameState); // إرجاع الحالة الحالية إذا كان الطلب GET
-  }
+    <h1>المحكمة السرية 🕵️‍♂️</h1>
+    <h2 id="current-player">دور اللاعب: ايفا</h2>
+    <h3 id="rep-display">السمعة: 10</h3>
 
-  const { action, payload } = req.body;
+    <div class="zone" id="inventory-zone">
+        <h3>مخزون البطاقات:</h3>
+        <div id="cards-container">
+            <span class="card">ATTACK</span>
+            <span class="card">STEAL</span>
+            <span class="card">BOOST</span>
+        </div>
+    </div>
 
-  switch (action) {
-    case 'BUY_CARD':
-      const buyer = gameState.players.find(p => p.name === payload.playerName);
-      if (buyer && buyer.rep >= 3) {
-        buyer.rep -= 3;
-        const randomCard = gameState.market[Math.floor(Math.random() * gameState.market.length)];
-        buyer.inventory.push(randomCard);
-        res.json({ success: true, card: randomCard, newRep: buyer.rep, inventory: buyer.inventory });
-      } else {
-        res.status(400).json({ error: "رصيد غير كافٍ أو اللاعب غير موجود" });
-      }
-      break;
+    <div class="zone" id="actions-zone">
+        <p class="warning">تنبيه: الشراء يكلف 3 سمعة، ويمكن أن يقصيك من اللعبة!</p>
+        <button class="btn buy-btn" onclick="buyCard()">شراء بطاقة عشوائية (-3 سمعة)</button>
+        <button id="alliance-offer" class="btn alliance-btn" style="display: none;" onclick="offerAlliance()">🤝 فرصة نادرة: اعقد تحالفاً!</button>
+        <br><br>
+        <button class="btn action-btn" onclick="triggerEvent()">🎲 محاكاة حدث مفاجئ (AI)</button>
+        <button class="btn action-btn" onclick="playReveal()">👁️ استخدام REVEAL_HAND</button>
+    </div>
 
-    case 'TRIGGER_RANDOM_EVENT':
-      const totalRep = gameState.players.reduce((sum, p) => sum + p.rep, 0);
-      let rand = Math.random() * totalRep;
-      let target = null;
-      let highestRepPlayer = gameState.players.reduce((prev, current) => (prev.rep > current.rep) ? prev : current);
+    <div class="zone" id="ai-event" style="display: none; background: #8e44ad;">
+        <h3>⚡ حدث مفاجئ!</h3>
+        <p id="ai-event-text"></p>
+    </div>
 
-      for (let p of gameState.players) {
-        rand -= p.rep;
-        if (rand <= 0) {
-          target = p;
-          break;
+    <div class="zone" id="reveal-zone" style="display: none; border: 2px solid #e74c3c;">
+        <h3 style="color: #e74c3c;">🚨 استجواب إجباري!</h3>
+        <p>تم إجبار <strong id="revealed-player"></strong> على كشف أوراقه:</p>
+        <p id="revealed-cards" style="color: #f1c40f;"></p>
+    </div>
+
+    <script>
+        const playerName = "ايفا";
+        let currentRep = 10;
+        let inventory = ["ATTACK", "STEAL", "BOOST"];
+
+        function updateUI() {
+            document.getElementById("rep-display").innerText = `السمعة: ${currentRep}`;
+            const cardsContainer = document.getElementById("cards-container");
+            cardsContainer.innerHTML = "";
+            inventory.forEach(card => {
+                const span = document.createElement("span");
+                span.className = "card";
+                span.innerText = card;
+                cardsContainer.appendChild(span);
+            });
         }
-      }
 
-      const aiEventText = await generateAIEvent(target.name, highestRepPlayer.name);
-      
-      const isCardLoss = Math.random() > 0.5;
-      if (isCardLoss && target.inventory.length > 0) {
-          target.inventory.pop(); 
-      } else {
-          target.rep -= 2; 
-      }
-
-      res.json({ success: true, event: aiEventText, target: target.name });
-      break;
-
-    case 'FORM_ALLIANCE':
-      const { player1, player2 } = payload;
-      gameState.alliances[player1] = { ally: player2, duration: 2 };
-      gameState.alliances[player2] = { ally: player1, duration: 2 };
-      res.json({ success: true, message: `تم التحالف بين ${player1} و ${player2} لجولتين!` });
-      break;
-
-    case 'APPLY_REWARD_PENALTY':
-      const { targetPlayer, amount, isReward } = payload;
-      const p = gameState.players.find(x => x.name === targetPlayer);
-      const alliance = gameState.alliances[targetPlayer];
-
-      if (isReward) {
-        if (alliance) {
-           p.rep += (amount / 2); 
-           let ally = gameState.players.find(x => x.name === alliance.ally);
-           if (ally) ally.rep += (amount / 2);
-        } else {
-           p.rep += amount;
-        }
-      } else {
-        p.rep -= amount;
-        if (alliance) {
-           let ally = gameState.players.find(x => x.name === alliance.ally);
-           if (ally) ally.rep -= amount;
-        }
-      }
-      res.json({ success: true, players: gameState.players });
-      break;
-
-    case 'SUBMIT_VOTE':
-      const { voter, accused } = payload;
-      gameState.votes[voter] = accused;
-      
-      if (Object.keys(gameState.votes).length === gameState.players.length) {
-         for (let v in gameState.votes) {
-            if (gameState.votes[v] !== gameState.guiltyPlayer) {
-               let wrongVoter = gameState.players.find(x => x.name === v);
-               if (wrongVoter) wrongVoter.rep -= 2; 
+        async function buyCard() {
+            if (currentRep - 3 <= 0) {
+                let confirmDeath = confirm("تحذير قاتل: هذا الشراء سيهبط بسمعتك إلى 0 أو أقل ويقصيك! هل أنت متأكد؟");
+                if (!confirmDeath) return;
             }
-         }
-         gameState.phase = "RESULTS";
-      }
-      res.json({ success: true, votesCount: Object.keys(gameState.votes).length });
-      break;
 
-    case 'PLAY_REVEAL_CARD':
-      const { attacker, victim } = payload;
-      const victimData = gameState.players.find(x => x.name === victim);
-      res.json({ success: true, victim: victim, cards: victimData.inventory });
-      break;
+            try {
+                const response = await fetch('/api/index', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'BUY_CARD', payload: { playerName } })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentRep = data.newRep;
+                    inventory = data.inventory;
+                    updateUI();
+                    alert(`حصلت على بطاقة: ${data.card}`);
+                    if (currentRep <= 0) alert("السمعة 0: لقد تمت تصفيتك من اللعبة!");
+                }
+            } catch(e) {
+                console.warn("جاري التشغيل محلياً بدون خادم...");
+                currentRep -= 3;
+                const mockCards = ["ATTACK", "STEAL", "BOOST", "SECRET_MSG", "REVEAL_HAND"];
+                const newCard = mockCards[Math.floor(Math.random() * mockCards.length)];
+                inventory.push(newCard);
+                updateUI();
+                alert(`(محاكاة) حصلت على بطاقة: ${newCard}`);
+                if (currentRep <= 0) alert("السمعة 0: لقد تمت تصفيتك من اللعبة!");
+            }
+        }
 
-    default:
-      res.status(400).json({ error: "إجراء غير معروف" });
-  }
-}
+        function checkRandomAllianceChance() {
+            if (Math.random() < 0.20) { // 20% فرصة لظهور التحالف
+                document.getElementById("alliance-offer").style.display = "inline-block";
+            }
+        }
+
+        function offerAlliance() {
+            let ally = prompt("فرصة نادرة! مع من تريد التحالف لجولتين؟ (خسارة 100% ومكسب 50%)");
+            if (ally) {
+                alert(`تم عقد التحالف مع ${ally}.`);
+                document.getElementById("alliance-offer").style.display = "none";
+                // هنا يتم إرسال fetch لـ FORM_ALLIANCE
+            }
+        }
+
+        async function triggerEvent() {
+            try {
+                const res = await fetch('/api/index', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'TRIGGER_RANDOM_EVENT' })
+                });
+                const data = await res.json();
+                if(data.success) {
+                    document.getElementById("ai-event").style.display = "block";
+                    document.getElementById("ai-event-text").innerText = data.event;
+                }
+            } catch(e) {
+                document.getElementById("ai-event").style.display = "block";
+                document.getElementById("ai-event-text").innerText = "(محاكاة) شائعات دمرت سمعة لاعب_2 وخسر نقطتين!";
+            }
+        }
+
+        async function playReveal() {
+            let victim = prompt("من تريد إجباره على كشف أوراقه؟");
+            if (!victim) return;
+            
+            try {
+                const res = await fetch('/api/index', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'PLAY_REVEAL_CARD', payload: { attacker: playerName, victim } })
+                });
+                const data = await res.json();
+                if(data.success) {
+                    document.getElementById("reveal-zone").style.display = "block";
+                    document.getElementById("revealed-player").innerText = data.victim;
+                    document.getElementById("revealed-cards").innerText = data.cards.join(" , ");
+                }
+            } catch(e) {
+                document.getElementById("reveal-zone").style.display = "block";
+                document.getElementById("revealed-player").innerText = victim;
+                document.getElementById("revealed-cards").innerText = "ATTACK , BOOST";
+            }
+        }
+
+        // التهيئة الأولية
+        updateUI();
+        checkRandomAllianceChance();
+    </script>
+</body>
+</html>
