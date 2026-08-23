@@ -1,168 +1,446 @@
-
-}
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>المحكمة السرية</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1a1a1a; color: white; text-align: center; margin: 0; padding: 20px; }
-        .card { background: #333; padding: 10px; margin: 5px; border-radius: 5px; display: inline-block; border: 1px solid #555; }
-        .btn { color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 5px; margin: 5px; font-weight: bold; }
-        .buy-btn { background: #f39c12; }
-        .buy-btn:hover { background: #e67e22; }
-        .alliance-btn { background: #9b59b6; animation: pulse 2s infinite; }
-        .action-btn { background: #3498db; }
-        .warning { color: #e74c3c; font-size: 0.9em; font-weight: bold; }
-        .zone { background: #2c3e50; padding: 15px; border-radius: 10px; margin: 20px auto; max-width: 600px; }
-        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>المحكمة السرية</title>
+  <style>
+    :root { --bg: #090d16; --panel: #111827; --accent: #f43f5e; --gold: #fbbf24; --text: #f8fafc; --ok: #22c55e; }
+    body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 12px; }
+    .container { max-width: 550px; margin: 0 auto; text-align: center; }
+    .panel { background: var(--panel); border: 1px solid #1e293b; border-radius: 12px; padding: 15px; margin-top: 12px; }
+    .status-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; margin-bottom: 12px; }
+    .p-card { background: #030712; border: 1px solid #1e293b; border-radius: 8px; padding: 8px; font-size: 0.85em; }
+    .cards-grid { display: grid; grid-template-columns: 1fr; gap: 8px; margin: 12px 0; }
+    .card-item { background: #1f2937; border: 2px solid #374151; border-radius: 8px; padding: 10px; cursor: pointer; text-align: right; font-size: 0.85em; }
+    .card-item.selected { border-color: var(--accent); background: #2d1a24; }
+    .card-item.disabled { opacity: 0.35; pointer-events: none; }
+    button { background: var(--accent); color: #fff; border: none; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%; margin-top: 8px; }
+    button.sec { background: #374151; }
+    button.buy { background: #1d4ed8; font-size: 0.8em; padding: 8px; }
+    select, input, textarea { width: 100%; padding: 10px; background: #030712; border: 1px solid #1e293b; color: #fff; border-radius: 6px; margin-bottom: 8px; box-sizing: border-box; }
+    .inbox-box { background: #182238; border: 1px solid #3b82f6; padding: 10px; border-radius: 8px; margin-bottom: 12px; text-align: right; font-size: 0.85em; }
+    .case-box { background: #030712; border-right: 4px solid var(--gold); padding: 12px; text-align: right; font-size: 0.95em; line-height: 1.5; margin-bottom: 12px; }
+    .clue-box { background: #030712; border-right: 4px solid #a855f7; padding: 10px; text-align: right; font-size: 0.85em; line-height: 1.5; margin-bottom: 12px; color: #d1d5db; }
+    .event-box { background: #1c1006; border-right: 4px solid #f59e0b; padding: 10px; text-align: right; font-size: 0.9em; margin-bottom: 12px; }
+    .timer { font-size: 1.3em; font-weight: bold; color: var(--gold); text-align: center; margin-bottom: 8px; }
+    .shop-box { background: #030712; border: 1px dashed #3b82f6; border-radius: 8px; padding: 10px; margin-top: 14px; }
+    .shop-row { display: flex; gap: 6px; margin-top: 6px; }
+    .shop-row button { margin-top: 0; }
+    .hint { font-size: 0.75em; color: #9ca3af; margin-top: 4px; }
+  </style>
 </head>
 <body>
 
-    <h1>المحكمة السرية 🕵️‍♂️</h1>
-    <h2 id="current-player">دور اللاعب: ايفا</h2>
-    <h3 id="rep-display">السمعة: 10</h3>
+<div class="container">
+  <h2 style="color: var(--accent);">🏛️ المحكمة السرية</h2>
 
-    <div class="zone" id="inventory-zone">
-        <h3>مخزون البطاقات:</h3>
-        <div id="cards-container">
-            <span class="card">ATTACK</span>
-            <span class="card">STEAL</span>
-            <span class="card">BOOST</span>
+  <!-- إعداد الطاولة -->
+  <div id="screen-setup" class="panel">
+    <h3>إعداد اللعبة</h3>
+    <input type="text" id="input-names" placeholder="الأسماء تفصلها فاصلة (أحمد, سارة, خالد)" value="أحمد, سارة, خالد">
+    <button onclick="startGame()">بدء اللعبة</button>
+  </div>
+
+  <!-- الشاشة الرئيسية -->
+  <div id="screen-game" style="display:none;">
+    <div class="status-bar" id="ui-status"></div>
+
+    <!-- 1) دور لعب البطاقات -->
+    <div id="phase-action" class="panel" style="display:none;">
+      <div id="curtain">
+        <h3 id="ui-turn-title">سلم الهاتف</h3>
+        <button onclick="revealTurn()">فتح الشاشة السرية</button>
+      </div>
+
+      <div id="deck-area" style="display:none;">
+        <div class="timer" id="ui-timer"></div>
+        <h3 id="ui-player-name">-</h3>
+
+        <div id="ui-inbox" class="inbox-box" style="display:none;">
+          <h4 style="margin:0 0 5px 0; color:#60a5fa;">📬 البريد السري الوارد:</h4>
+          <div id="ui-inbox-content"></div>
         </div>
+
+        <div class="cards-grid" id="ui-cards-container"></div>
+
+        <div id="msg-box" style="display:none;">
+          <textarea id="input-msg-text" placeholder="اكتب رسالتك السرية هنا..."></textarea>
+        </div>
+
+        <div id="target-box" style="display:none;">
+          <label style="font-size:0.8em;">اختر اللاعب المستهدف:</label>
+          <select id="select-target"></select>
+        </div>
+
+        <button onclick="submitAction()">تأكيد الحركة وانتقال الدور</button>
+
+        <div class="shop-box">
+          <b style="font-size:0.85em;">🛒 السوق السرية</b>
+          <div class="hint">اشترِ بطاقة إضافية مقابل <span id="ui-buy-cost"></span> سمعة. يمكنك النزول إلى 0 والمخاطرة!</div>
+          <div class="shop-row">
+            <button class="buy" onclick="buyCard('ATTACK')">🗡️ شراء هجوم</button>
+            <button class="buy" onclick="buyCard('STEAL')">💰 شراء سرقة</button>
+            <button class="buy" onclick="buyCard('BOOST')">🛡️ شراء تعزيز</button>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <div class="zone" id="actions-zone">
-        <p class="warning">تنبيه: الشراء يكلف 3 سمعة، ويمكن أن يقصيك من اللعبة!</p>
-        <button class="btn buy-btn" onclick="buyCard()">شراء بطاقة عشوائية (-3 سمعة)</button>
-        <button id="alliance-offer" class="btn alliance-btn" style="display: none;" onclick="offerAlliance()">🤝 فرصة نادرة: اعقد تحالفاً!</button>
-        <br><br>
-        <button class="btn action-btn" onclick="triggerEvent()">🎲 محاكاة حدث مفاجئ (AI)</button>
-        <button class="btn action-btn" onclick="playReveal()">👁️ استخدام REVEAL_HAND</button>
+    <!-- 2) ملخص الجولة (حدث عشوائي + قضية) -->
+    <div id="phase-recap" class="panel" style="display:none;">
+      <h3>📜 ملخص الجولة</h3>
+      <div id="ui-event-box" class="event-box" style="display:none;"></div>
+      <div class="case-box" id="ui-case-title">...</div>
+      <div id="ui-clue-box" class="clue-box" style="display:none;"></div>
+      <button onclick="startVotePhase()">الانتقال إلى التصويت السري 🗳️</button>
     </div>
 
-    <div class="zone" id="ai-event" style="display: none; background: #8e44ad;">
-        <h3>⚡ حدث مفاجئ!</h3>
-        <p id="ai-event-text"></p>
+    <!-- 3) التصويت السري الفردي -->
+    <div id="phase-vote" class="panel" style="display:none;">
+      <div id="vote-curtain">
+        <h3 id="ui-vote-turn-title">سلم الهاتف للتصويت</h3>
+        <button onclick="revealVoteTurn()">فتح شاشة التصويت السري</button>
+      </div>
+      <div id="vote-reveal" style="display:none;">
+        <div class="case-box" id="ui-vote-case-title">...</div>
+        <label style="font-size:0.85em; display:block; margin-bottom:5px;">من تشك أنه ارتكب الجريمة؟ (تصويتك سري تماماً)</label>
+        <select id="select-my-vote"></select>
+        <div class="hint">⚠️ إذا كان تخمينك خاطئاً، ستخسر أنت نقاط سمعة.</div>
+        <button onclick="submitMyVote()">تأكيد تصويتي السري</button>
+      </div>
     </div>
+  </div>
+</div>
 
-    <div class="zone" id="reveal-zone" style="display: none; border: 2px solid #e74c3c;">
-        <h3 style="color: #e74c3c;">🚨 استجواب إجباري!</h3>
-        <p>تم إجبار <strong id="revealed-player"></strong> على كشف أوراقه:</p>
-        <p id="revealed-cards" style="color: #f1c40f;"></p>
-    </div>
+<script>
+  const ALL_CARDS = [
+    { id: 'ATTACK', name: '🗡️ إدانة هجومية', desc: 'خصم 3 سمعة من الهدف', reqTarget: true, buyable: true },
+    { id: 'STEAL', name: '💰 سرقة نفوذ', desc: 'سرقة 2 سمعة من الهدف لصالحك', reqTarget: true, buyable: true },
+    { id: 'BOOST', name: '🛡️ تعزيز نفوذ', desc: '+2 سمعة لرصيدك الشخصي', reqTarget: false, buyable: true },
+    { id: 'SECRET_MSG', name: '✉️ رسالة سرية', desc: 'إرسال رسالة نصية مخصصة تصل لبريد الهدف (غير محدودة الاستخدام)', reqTarget: true, buyable: false }
+  ];
 
-    <script>
-        const playerName = "ايفا";
-        let currentRep = 10;
-        let inventory = ["ATTACK", "STEAL", "BOOST"];
+  const STARTING_REPUTATION = 10;
+  const BUY_COST = 3;
+  const TURN_SECONDS = 15;
+  const MSG_EXTRA_SECONDS = 10;
 
-        function updateUI() {
-            document.getElementById("rep-display").innerText = `السمعة: ${currentRep}`;
-            const cardsContainer = document.getElementById("cards-container");
-            cardsContainer.innerHTML = "";
-            inventory.forEach(card => {
-                const span = document.createElement("span");
-                span.className = "card";
-                span.innerText = card;
-                cardsContainer.appendChild(span);
-            });
+  let gameState = {
+    players: [],
+    pendingMessages: {},
+    currentTurn: 0,
+    actions: [],
+    selectedCard: null,
+    currentCase: null,
+    randomEvent: null,
+    votes: [],
+    voteTurnIdx: 0
+  };
+
+  let turnTimer = null;
+  let timeLeft = 0;
+  let extendedThisTurn = false;
+
+  document.getElementById('ui-buy-cost').innerText = BUY_COST;
+
+  function startGame() {
+    const names = document.getElementById('input-names').value.split(',').map(n => n.trim()).filter(n => n);
+    if (names.length < 2) return alert("ادخل اسمين على الأقل");
+    gameState.players = names.map((n, i) => ({
+      id: i, name: n, reputation: STARTING_REPUTATION,
+      inventory: { ATTACK: 1, STEAL: 1, BOOST: 1 }
+    }));
+    document.getElementById('screen-setup').style.display = 'none';
+    document.getElementById('screen-game').style.display = 'block';
+    startRound();
+  }
+
+  function startRound() {
+    gameState.currentTurn = 0;
+    gameState.actions = [];
+    renderStatus();
+    document.getElementById('phase-recap').style.display = 'none';
+    document.getElementById('phase-vote').style.display = 'none';
+    document.getElementById('phase-action').style.display = 'block';
+    showCurtain();
+  }
+
+  function renderStatus() {
+    document.getElementById('ui-status').innerHTML = gameState.players.map(p => `
+      <div class="p-card">
+        <b>${p.name}</b><br>${p.reputation <= 0 ? '💀 مقصى' : p.reputation + ' ⭐'}
+      </div>
+    `).join('');
+  }
+
+  function showCurtain() {
+    const p = gameState.players[gameState.currentTurn];
+    if (p.reputation <= 0) { nextTurn(); return; }
+    document.getElementById('curtain').style.display = 'block';
+    document.getElementById('deck-area').style.display = 'none';
+    document.getElementById('ui-turn-title').innerText = `سلم الهاتف إلى: ${p.name}`;
+  }
+
+  function revealTurn() {
+    const p = gameState.players[gameState.currentTurn];
+    document.getElementById('curtain').style.display = 'none';
+    document.getElementById('deck-area').style.display = 'block';
+    document.getElementById('ui-player-name').innerText = p.name;
+
+    gameState.selectedCard = null;
+    document.getElementById('msg-box').style.display = 'none';
+    document.getElementById('target-box').style.display = 'none';
+
+    // البريد السري
+    const inboxBox = document.getElementById('ui-inbox');
+    const inboxContent = document.getElementById('ui-inbox-content');
+    inboxContent.innerHTML = '';
+    let hasMessages = false;
+    if (gameState.pendingMessages[p.id] && gameState.pendingMessages[p.id].length > 0) {
+      hasMessages = true;
+      gameState.pendingMessages[p.id].forEach(m => {
+        inboxContent.innerHTML += `<div style="margin-bottom:6px;">📩 <b>رسالة من ${m.senderName}:</b> "${m.text}"</div>`;
+      });
+      gameState.pendingMessages[p.id] = [];
+    }
+    inboxBox.style.display = hasMessages ? 'block' : 'none';
+
+    renderHand(p);
+
+    extendedThisTurn = false;
+    startTurnTimer();
+  }
+
+  function renderHand(p) {
+    const container = document.getElementById('ui-cards-container');
+    container.innerHTML = '';
+    ALL_CARDS.forEach(card => {
+      const isUnlimited = card.id === 'SECRET_MSG';
+      const remaining = isUnlimited ? null : (p.inventory[card.id] || 0);
+      const disabled = !isUnlimited && remaining <= 0;
+      container.innerHTML += `
+        <div class="card-item ${disabled ? 'disabled' : ''}"
+             ${disabled ? '' : `onclick="selectCard('${card.id}', this)"`}>
+          <b>${card.name}</b> ${isUnlimited ? '<span style="color:#60a5fa;">(غير محدود)</span>' : `<span style="color:${remaining > 0 ? 'var(--gold)' : '#6b7280'};">(متبقي: ${remaining})</span>`}
+          <div style="font-size:0.75em; color:#9ca3af;">${card.desc}</div>
+        </div>`;
+    });
+  }
+
+  function buyCard(cardId) {
+    const p = gameState.players[gameState.currentTurn];
+    if (p.reputation < BUY_COST) { alert('سمعتك غير كافية لشراء هذه البطاقة!'); return; }
+    if (!confirm(`شراء بطاقة إضافية مقابل ${BUY_COST} سمعة. رصيدك الحالي: ${p.reputation}. متابعة؟`)) return;
+
+    p.reputation -= BUY_COST;
+    p.inventory[cardId] = (p.inventory[cardId] || 0) + 1;
+    renderStatus();
+
+    if (p.reputation <= 0) {
+      clearInterval(turnTimer);
+      alert(`💀 لقد استنفد [${p.name}] كل سمعته أثناء الشراء! تم إقصاؤه من اللعبة.`);
+      nextTurn();
+      return;
+    }
+    renderHand(p); // تحديث الأعداد فقط، بدون إعادة تشغيل المؤقّت
+  }
+
+  function selectCard(cardId, el) {
+    document.querySelectorAll('.card-item').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+    gameState.selectedCard = ALL_CARDS.find(c => c.id === cardId);
+
+    document.getElementById('msg-box').style.display = cardId === 'SECRET_MSG' ? 'block' : 'none';
+    const targetBox = document.getElementById('target-box');
+
+    if (gameState.selectedCard.reqTarget) {
+      targetBox.style.display = 'block';
+      const select = document.getElementById('select-target');
+      select.innerHTML = '';
+      gameState.players.forEach((pl, idx) => {
+        if (idx !== gameState.currentTurn && pl.reputation > 0) {
+          select.innerHTML += `<option value="${idx}">${pl.name}</option>`;
         }
+      });
+    } else {
+      targetBox.style.display = 'none';
+    }
 
-        async function buyCard() {
-            if (currentRep - 3 <= 0) {
-                let confirmDeath = confirm("تحذير قاتل: هذا الشراء سيهبط بسمعتك إلى 0 أو أقل ويقصيك! هل أنت متأكد؟");
-                if (!confirmDeath) return;
-            }
+    // الرسالة السرية تحتاج وقت كتابة أطول: تمديد لمرة واحدة فقط لكل دور
+    if (cardId === 'SECRET_MSG' && !extendedThisTurn) {
+      extendedThisTurn = true;
+      timeLeft += MSG_EXTRA_SECONDS;
+      document.getElementById('ui-timer').innerText = `⏱️ ${timeLeft}`;
+    }
+  }
 
-            try {
-                const response = await fetch('/api/index', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'BUY_CARD', payload: { playerName } })
-                });
-                const data = await response.json();
-                
-                if (data.success) {
-                    currentRep = data.newRep;
-                    inventory = data.inventory;
-                    updateUI();
-                    alert(`حصلت على بطاقة: ${data.card}`);
-                    if (currentRep <= 0) alert("السمعة 0: لقد تمت تصفيتك من اللعبة!");
-                }
-            } catch(e) {
-                console.warn("جاري التشغيل محلياً بدون خادم...");
-                currentRep -= 3;
-                const mockCards = ["ATTACK", "STEAL", "BOOST", "SECRET_MSG", "REVEAL_HAND"];
-                const newCard = mockCards[Math.floor(Math.random() * mockCards.length)];
-                inventory.push(newCard);
-                updateUI();
-                alert(`(محاكاة) حصلت على بطاقة: ${newCard}`);
-                if (currentRep <= 0) alert("السمعة 0: لقد تمت تصفيتك من اللعبة!");
-            }
-        }
+  function startTurnTimer() {
+    clearInterval(turnTimer);
+    timeLeft = TURN_SECONDS;
+    document.getElementById('ui-timer').innerText = `⏱️ ${timeLeft}`;
+    turnTimer = setInterval(() => {
+      timeLeft--;
+      document.getElementById('ui-timer').innerText = `⏱️ ${timeLeft}`;
+      if (timeLeft <= 0) {
+        clearInterval(turnTimer);
+        alert('⏰ انتهى الوقت! ينتقل الدور بلا حركة.');
+        nextTurn();
+      }
+    }, 1000);
+  }
 
-        function checkRandomAllianceChance() {
-            if (Math.random() < 0.20) { // 20% فرصة لظهور التحالف
-                document.getElementById("alliance-offer").style.display = "inline-block";
-            }
-        }
+  function submitAction() {
+    if (!gameState.selectedCard) return alert("اختر بطاقة أولاً!");
+    if (gameState.selectedCard.reqTarget && document.getElementById('select-target').options.length === 0) {
+      return alert("لا يوجد هدف متاح لهذه البطاقة!");
+    }
+    const p = gameState.players[gameState.currentTurn];
+    const cardId = gameState.selectedCard.id;
 
-        function offerAlliance() {
-            let ally = prompt("فرصة نادرة! مع من تريد التحالف لجولتين؟ (خسارة 100% ومكسب 50%)");
-            if (ally) {
-                alert(`تم عقد التحالف مع ${ally}.`);
-                document.getElementById("alliance-offer").style.display = "none";
-                // هنا يتم إرسال fetch لـ FORM_ALLIANCE
-            }
-        }
+    if (cardId !== 'SECRET_MSG') {
+      if ((p.inventory[cardId] || 0) <= 0) return alert("خلصت هالبطاقة! اشترِ نسخة جديدة أو اختر غيرها.");
+      p.inventory[cardId]--;
+    }
 
-        async function triggerEvent() {
-            try {
-                const res = await fetch('/api/index', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'TRIGGER_RANDOM_EVENT' })
-                });
-                const data = await res.json();
-                if(data.success) {
-                    document.getElementById("ai-event").style.display = "block";
-                    document.getElementById("ai-event-text").innerText = data.event;
-                }
-            } catch(e) {
-                document.getElementById("ai-event").style.display = "block";
-                document.getElementById("ai-event-text").innerText = "(محاكاة) شائعات دمرت سمعة لاعب_2 وخسر نقطتين!";
-            }
-        }
+    let targetIdx = gameState.selectedCard.reqTarget ? parseInt(document.getElementById('select-target').value) : null;
+    let customText = cardId === 'SECRET_MSG' ? document.getElementById('input-msg-text').value : "";
 
-        async function playReveal() {
-            let victim = prompt("من تريد إجباره على كشف أوراقه؟");
-            if (!victim) return;
-            
-            try {
-                const res = await fetch('/api/index', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'PLAY_REVEAL_CARD', payload: { attacker: playerName, victim } })
-                });
-                const data = await res.json();
-                if(data.success) {
-                    document.getElementById("reveal-zone").style.display = "block";
-                    document.getElementById("revealed-player").innerText = data.victim;
-                    document.getElementById("revealed-cards").innerText = data.cards.join(" , ");
-                }
-            } catch(e) {
-                document.getElementById("reveal-zone").style.display = "block";
-                document.getElementById("revealed-player").innerText = victim;
-                document.getElementById("revealed-cards").innerText = "ATTACK , BOOST";
-            }
-        }
+    gameState.actions.push({ playerIdx: gameState.currentTurn, card: gameState.selectedCard, targetIdx, customText });
 
-        // التهيئة الأولية
-        updateUI();
-        checkRandomAllianceChance();
-    </script>
+    clearInterval(turnTimer);
+    nextTurn();
+  }
+
+  function nextTurn() {
+    gameState.currentTurn++;
+    if (gameState.currentTurn < gameState.players.length) {
+      showCurtain();
+    } else {
+      resolveRoundServer();
+    }
+  }
+
+  async function resolveRoundServer() {
+    document.getElementById('phase-action').style.display = 'none';
+
+    const res = await fetch('/api', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'resolve_round',
+        players: gameState.players,
+        actions: gameState.actions,
+        pendingMessages: gameState.pendingMessages
+      })
+    });
+
+    const data = await res.json();
+    gameState.players = data.players;
+    gameState.pendingMessages = data.pendingMessages;
+    gameState.currentCase = data.courtCase;
+    gameState.randomEvent = data.randomEvent;
+
+    renderStatus();
+    showRecap();
+  }
+
+  function showRecap() {
+    document.getElementById('phase-recap').style.display = 'block';
+
+    const eventBox = document.getElementById('ui-event-box');
+    if (gameState.randomEvent && gameState.randomEvent.type !== 'NOTHING') {
+      eventBox.style.display = 'block';
+      eventBox.innerText = gameState.randomEvent.description;
+    } else if (gameState.randomEvent) {
+      eventBox.style.display = 'block';
+      eventBox.innerText = gameState.randomEvent.description;
+    } else {
+      eventBox.style.display = 'none';
+    }
+
+    document.getElementById('ui-case-title').innerText = gameState.currentCase.title;
+
+    const clueBox = document.getElementById('ui-clue-box');
+    if (gameState.currentCase.clueText) {
+      clueBox.style.display = 'block';
+      clueBox.innerText = gameState.currentCase.clueText;
+    } else {
+      clueBox.style.display = 'none';
+    }
+  }
+
+  // ---------------- التصويت السري الفردي ----------------
+
+  function startVotePhase() {
+    gameState.votes = [];
+    gameState.voteTurnIdx = 0;
+    document.getElementById('phase-recap').style.display = 'none';
+    document.getElementById('phase-vote').style.display = 'block';
+    showVoteCurtain();
+  }
+
+  function showVoteCurtain() {
+    while (gameState.voteTurnIdx < gameState.players.length && gameState.players[gameState.voteTurnIdx].reputation <= 0) {
+      gameState.voteTurnIdx++;
+    }
+    if (gameState.voteTurnIdx >= gameState.players.length) {
+      finalizeVotes();
+      return;
+    }
+    document.getElementById('vote-curtain').style.display = 'block';
+    document.getElementById('vote-reveal').style.display = 'none';
+    document.getElementById('ui-vote-turn-title').innerText = `سلم الهاتف إلى: ${gameState.players[gameState.voteTurnIdx].name} (تصويت سري)`;
+  }
+
+  function revealVoteTurn() {
+    document.getElementById('vote-curtain').style.display = 'none';
+    document.getElementById('vote-reveal').style.display = 'block';
+    document.getElementById('ui-vote-case-title').innerText = gameState.currentCase.title;
+
+    const select = document.getElementById('select-my-vote');
+    select.innerHTML = '<option value="NONE">🕊️ لا أحد / قضية مضللة</option>';
+    gameState.players.forEach((p, idx) => {
+      if (p.reputation > 0 && idx !== gameState.voteTurnIdx) {
+        select.innerHTML += `<option value="${idx}">${p.name}</option>`;
+      }
+    });
+  }
+
+  function submitMyVote() {
+    const val = document.getElementById('select-my-vote').value;
+    gameState.votes.push({ voterIdx: gameState.voteTurnIdx, accusedIdx: val === 'NONE' ? null : parseInt(val) });
+    gameState.voteTurnIdx++;
+    showVoteCurtain();
+  }
+
+  async function finalizeVotes() {
+    const res = await fetch('/api', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'resolve_votes',
+        players: gameState.players,
+        votes: gameState.votes,
+        trueCulpritIdx: gameState.currentCase.trueCulpritIdx
+      })
+    });
+
+    const data = await res.json();
+    gameState.players = data.players;
+    renderStatus();
+    document.getElementById('phase-vote').style.display = 'none';
+    alert(data.verdictMsg);
+
+    const alive = gameState.players.filter(p => p.reputation > 0);
+    if (alive.length <= 1) {
+      alert(`🎉 انتهت الجلسة! الفائز هو: ${alive[0]?.name || "لا أحد"}`);
+      location.reload();
+    } else {
+      document.getElementById('phase-action').style.display = 'block';
+      startRound();
+    }
+  }
+</script>
 </body>
 </html>
