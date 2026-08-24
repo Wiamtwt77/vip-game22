@@ -124,12 +124,12 @@
 
 <script>
   const ALL_CARDS = [
-    { id: 'ATTACK', name: '🗡️ إدانة هجومية', desc: 'خصم 3 سمعة من الهدف', reqTarget: true },
-    { id: 'STEAL', name: '💰 سرقة نفوذ', desc: 'سرقة 2 سمعة من الهدف لصالحك', reqTarget: true },
-    { id: 'BOOST', name: '🛡️ تعزيز نفوذ', desc: '+2 سمعة لرصيدك الشخصي', reqTarget: false },
-    { id: 'INTERROGATE', name: '🕵️ استجواب', desc: 'تسأل سراً: هل ارتكب الهدف جريمة هذه الجولة؟ الجواب يصلك في بريدك السري بالدور القادم.', reqTarget: true },
-    { id: 'FORCE_REVEAL', name: '🔓 إجبار الكشف', desc: 'يُعلن للجميع علناً كم بطاقة متبقية عند الهدف من كل نوع.', reqTarget: true },
-    { id: 'SECRET_MSG', name: '✉️ رسالة سرية', desc: 'إرسال رسالة نصية مخصصة تصل لبريد الهدف (غير محدودة الاستخدام)', reqTarget: true, unlimited: true }
+    { id: 'ATTACK', name: '🗡️ إدانة هجومية', desc: 'خصم 3 سمعة من الهدف؛ تبني قضية ضده', reqTarget: true, cooldown: 2 },
+    { id: 'STEAL', name: '💰 سرقة نفوذ', desc: 'سرقة 2 سمعة من الهدف لصالحك', reqTarget: true, cooldown: 2 },
+    { id: 'BOOST', name: '🛡️ تعزيز نفوذ', desc: '+2 سمعة لرصيدك الشخصي، ويمنح الحليف مكافأة التعاون', reqTarget: false, cooldown: 2 },
+    { id: 'INTERROGATE', name: '🕵️ استجواب', desc: 'تسأل سراً عن الهدف وتستلم الإجابة في البريد القادم', reqTarget: true, cooldown: 2 },
+    { id: 'FORCE_REVEAL', name: '🔓 إجبار الكشف', desc: 'يكشف للجميع مخزون الهدف؛ بطاقة نادرة وبطيئة التكرار', reqTarget: true, cooldown: 3 },
+    { id: 'SECRET_MSG', name: '✉️ رسالة سرية', desc: 'إرسال رسالة نصية مخصصة تصل لبريد الهدف', reqTarget: true, cooldown: 2 }
   ];
 
   // احتمالات الشراء العشوائي (يجب أن يطابق مجموعها 100)
@@ -144,6 +144,7 @@
   const STARTING_REPUTATION = 10;
   const BUY_COST = 3;
   const ALLIANCE_DURATION = 4;
+  const MAX_CARD_COPIES = 2;
 
   let gameState = {
     players: [],
@@ -167,6 +168,7 @@
     gameState.players = names.map((n, i) => ({
       id: i, name: n, reputation: STARTING_REPUTATION,
       inventory: { ATTACK: 1, STEAL: 1, BOOST: 1 },
+      cardCooldowns: {}, shopCooldown: 0,
       allyIdx: null, allyRoundsLeft: 0, allianceOffer: null
     }));
     document.getElementById('screen-setup').style.display = 'none';
@@ -177,6 +179,10 @@
   function startRound() {
     gameState.currentTurn = 0;
     gameState.actions = [];
+    gameState.players.forEach(p => {
+      if (p.cardCooldowns) Object.keys(p.cardCooldowns).forEach(k => { p.cardCooldowns[k] = Math.max(0, p.cardCooldowns[k] - 1); });
+      p.shopCooldown = Math.max(0, (p.shopCooldown || 0) - 1);
+    });
     renderStatus();
     document.getElementById('phase-recap').style.display = 'none';
     document.getElementById('phase-vote').style.display = 'none';
@@ -215,12 +221,14 @@
     const inboxContent = document.getElementById('ui-inbox-content');
     inboxContent.innerHTML = '';
     let hasMessages = false;
-    if (gameState.pendingMessages[p.id] && gameState.pendingMessages[p.id].length > 0) {
+    const inboxKey = String(p.id);
+    const inbox = gameState.pendingMessages[inboxKey] || gameState.pendingMessages[p.id] || [];
+    if (inbox.length > 0) {
       hasMessages = true;
-      gameState.pendingMessages[p.id].forEach(m => {
+      inbox.forEach(m => {
         inboxContent.innerHTML += `<div style="margin-bottom:6px;">📩 <b>رسالة من ${m.senderName}:</b> "${m.text}"${m.warning ? `<div class="warn">⚠️ ${m.warning}</div>` : ''}</div>`;
       });
-      gameState.pendingMessages[p.id] = [];
+      gameState.pendingMessages[inboxKey] = [];
     }
     inboxBox.style.display = hasMessages ? 'block' : 'none';
 
@@ -273,11 +281,12 @@
     ALL_CARDS.forEach(card => {
       const isUnlimited = !!card.unlimited;
       const remaining = isUnlimited ? null : (p.inventory[card.id] || 0);
-      const disabled = !isUnlimited && remaining <= 0;
+      const cooldown = p.cardCooldowns?.[card.id] || 0;
+      const disabled = (!isUnlimited && remaining <= 0) || cooldown > 0;
       container.innerHTML += `
         <div class="card-item ${disabled ? 'disabled' : ''}"
              ${disabled ? '' : `onclick="selectCard('${card.id}', this)"`}>
-          <b>${card.name}</b> ${isUnlimited ? '<span style="color:#60a5fa;">(غير محدود)</span>' : `<span style="color:${remaining > 0 ? 'var(--gold)' : '#6b7280'};">(متبقي: ${remaining})</span>`}
+          <b>${card.name}</b> ${isUnlimited ? '<span style="color:#60a5fa;">(غير محدود)</span>' : `<span style="color:${remaining > 0 ? 'var(--gold)' : '#6b7280'};">(متبقي: ${remaining})</span>`}${cooldown > 0 ? `<span style="color:#f59e0b;"> · تبريد ${cooldown} ج</span>` : ''}
           <div style="font-size:0.75em; color:#9ca3af;">${card.desc}</div>
         </div>`;
     });
@@ -296,11 +305,18 @@
   function buyRandomCard() {
     const p = gameState.players[gameState.currentTurn];
     if (p.reputation < BUY_COST) { alert('سمعتك غير كافية للشراء العشوائي!'); return; }
+    if ((p.shopCooldown || 0) > 0) { alert(`السوق في فترة انتظار. تبقى ${p.shopCooldown} جولة.`); return; }
     if (!confirm(`شراء بطاقة عشوائية مقابل ${BUY_COST} سمعة. رصيدك الحالي: ${p.reputation}. متابعة؟`)) return;
 
     p.reputation -= BUY_COST;
     const cardId = weightedRandomCardId();
+    if ((p.inventory[cardId] || 0) >= MAX_CARD_COPIES) {
+      p.reputation += BUY_COST;
+      alert('لديك الحد الأقصى من نسخ هذه البطاقة؛ أُعيدت السمعة.');
+      return;
+    }
     p.inventory[cardId] = (p.inventory[cardId] || 0) + 1;
+    p.shopCooldown = 2;
     renderStatus();
 
     const cardDef = ALL_CARDS.find(c => c.id === cardId);
@@ -328,7 +344,7 @@
       select.innerHTML = '';
       gameState.players.forEach((pl, idx) => {
         if (idx !== gameState.currentTurn && pl.reputation > 0) {
-          select.innerHTML += `<option value="${idx}">${pl.name}</option>`;
+          select.innerHTML += `<option value="${pl.id}">${pl.name}</option>`;
         }
       });
     } else {
@@ -346,13 +362,16 @@
 
     if (!gameState.selectedCard.unlimited) {
       if ((p.inventory[cardId] || 0) <= 0) return alert("خلصت هالبطاقة! اشترِ نسخة جديدة أو اختر غيرها.");
+      if ((p.cardCooldowns?.[cardId] || 0) > 0) return alert('هذه البطاقة في فترة انتظار ولا يمكن تكرارها الآن.');
       p.inventory[cardId]--;
     }
 
     let targetIdx = gameState.selectedCard.reqTarget ? parseInt(document.getElementById('select-target').value) : null;
     let customText = cardId === 'SECRET_MSG' ? document.getElementById('input-msg-text').value : "";
 
-    gameState.actions.push({ playerIdx: gameState.currentTurn, card: gameState.selectedCard, targetIdx, customText });
+    p.cardCooldowns = p.cardCooldowns || {};
+    p.cardCooldowns[cardId] = gameState.selectedCard.cooldown || 0;
+    gameState.actions.push({ playerIdx: gameState.currentTurn, playerId: p.id, card: gameState.selectedCard, targetIdx, targetId: targetIdx === null ? null : gameState.players[targetIdx].id, customText });
 
     nextTurn();
   }
@@ -397,7 +416,7 @@
     const eventBox = document.getElementById('ui-event-box');
     if (gameState.randomEvent) {
       eventBox.style.display = 'block';
-      eventBox.innerText = gameState.randomEvent.description;
+      eventBox.innerText = `${gameState.randomEvent.description} (احتمال الحدث يتأثر بالسمعة، وليس ثابتًا على لاعب واحد)`;
     } else {
       eventBox.style.display = 'none';
     }
@@ -421,7 +440,7 @@
     const clueBox = document.getElementById('ui-clue-box');
     if (gameState.currentCase.clueText) {
       clueBox.style.display = 'block';
-      clueBox.innerText = gameState.currentCase.clueText;
+      clueBox.innerText = `${gameState.currentCase.clueText}\nنسبة الثقة التقريبية: ${gameState.currentCase.confidence ?? 65}%`;
     } else {
       clueBox.style.display = 'none';
     }
@@ -487,7 +506,8 @@
     gameState.players = data.players;
     renderStatus();
     document.getElementById('phase-vote').style.display = 'none';
-    alert(data.verdictMsg);
+    const evidenceText = data.finalEvidence ? `\n\nدليل ختامي نسبي (${data.finalEvidence.confidence}%): ${data.finalEvidence.conclusion}\n${data.finalEvidence.note}` : '';
+    alert(data.verdictMsg + evidenceText);
 
     const alive = gameState.players.filter(p => p.reputation > 0);
     if (alive.length <= 1) {
