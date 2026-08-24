@@ -6,7 +6,8 @@ const CARD_RULES = {
   BOOST: { gain: 2, cooldown: 2 },
   INTERROGATE: { cooldown: 3 },
   FORCE_REVEAL: { cooldown: 4 },
-  SECRET_MSG: { cooldown: 2 }
+  SECRET_MSG: { cooldown: 2 },
+  AI_CARD: { cooldown: 2 }
 };
 const EVENTS = [
   { type: 'LOSE_REP', weight: 35, text: (p) => `تزايدت الشكوك حول ${p.name} وخسر نقطتي سمعة.`, apply: (p) => { p.reputation = Math.max(0, p.reputation - 2); } },
@@ -22,9 +23,9 @@ function cleanState(players) {
   return players.map((p, i) => ({
     id: String(p.id ?? `p-${i}`), name: String(p.name || `لاعب ${i + 1}`).slice(0, 40),
     reputation: Math.max(0, Number(p.reputation) || 0),
-    inventory: Object.fromEntries(Object.keys(CARD_RULES).map(k => [k, Math.max(0, Math.min(5, Number(p.inventory?.[k]) || 0))])),
+    inventory: Object.fromEntries([...new Set([...Object.keys(CARD_RULES), ...Object.keys(p.inventory || {})])].map(k => [k, Math.max(0, Math.min(5, Number(p.inventory?.[k]) || 0))])),
     cooldowns: Object.fromEntries(Object.entries(p.cooldowns || {}).map(([k, v]) => [k, Math.max(0, Number(v) || 0)])),
-    shopCooldown: Math.max(0, Number(p.shopCooldown) || 0),
+    shopCooldown: Math.max(0, Number(p.shopCooldown) || 0), shieldRounds: Math.max(0, Number(p.shieldRounds) || 0),
     allyId: p.allyId == null ? null : String(p.allyId), allyRoundsLeft: Math.max(0, Number(p.allyRoundsLeft) || 0),
     allianceOffer: p.allianceOffer ? { fromId: String(p.allianceOffer.fromId), fromName: String(p.allianceOffer.fromName || '') } : null
   }));
@@ -37,6 +38,8 @@ function expireAndOffers(players) {
   const eligible = players.map((p, i) => ({ p, i })).filter(x => active(x.p) && !x.p.allyId && !x.p.allianceOffer);
   if (eligible.length >= 2 && Math.random() < 0.7) { const a = eligible[Math.floor(Math.random() * eligible.length)]; const rest = eligible.filter(x => x.i !== a.i); const b = rest[Math.floor(Math.random() * rest.length)]; players[b.i].allianceOffer = { fromId: a.p.id, fromName: a.p.name }; }
 }
+function fallbackCard() { const types = ['REPUTATION_LOSS','STEAL','REPUTATION_GAIN','INVESTIGATE','MESSAGE','SHIELD']; const type = types[Math.floor(Math.random()*types.length)]; const names = {REPUTATION_LOSS:'ختم الشك',STEAL:'حبر النفوذ',REPUTATION_GAIN:'شهادة سرية',INVESTIGATE:'عين المحكمة',MESSAGE:'همسة مشفرة',SHIELD:'درع الشاهد'}; return { id: `AI-${Date.now()}-${Math.random().toString(36).slice(2,7)}`, name: names[type], description: 'بطاقة مولدة تلقائيًا بأثر فريد لهذه الجولة.', effectType: type, power: type==='STEAL'?2:type==='REPUTATION_LOSS'?2:type==='REPUTATION_GAIN'?2:1, targetRequired: !['REPUTATION_GAIN','SHIELD'].includes(type), cooldown: 2, rarity: 'عادية' }; }
+async function generateCard(payload) { const key = process.env.OPENROUTER_KEY; if (!key) return fallbackCard(); const controller = new AbortController(); const timer=setTimeout(()=>controller.abort(),3500); try { const response=await fetch(OPENROUTER_URL,{method:'POST',signal:controller.signal,headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json','HTTP-Referer':process.env.APP_URL||'https://secret-court.local','X-Title':'Secret Court'},body:JSON.stringify({model:DEFAULT_MODEL,temperature:0.95,max_tokens:350,messages:[{role:'system',content:'أنت مصمم بطاقات للعبة المحكمة السرية. أعد JSON فقط. يجب أن يكون effectType واحدًا من REPUTATION_LOSS, STEAL, REPUTATION_GAIN, INVESTIGATE, MESSAGE, SHIELD. لا تخترع تأثيرات خارج القائمة.'},{role:'user',content:JSON.stringify(payload)}],response_format:{type:'json_object'}})}); if(!response.ok)return fallbackCard(); const data=await response.json(); const raw=data.choices?.[0]?.message?.content; const card=raw?JSON.parse(raw):null; const allowed=['REPUTATION_LOSS','STEAL','REPUTATION_GAIN','INVESTIGATE','MESSAGE','SHIELD']; if(!card||typeof card.name!=='string'||!allowed.includes(card.effectType))return fallbackCard(); return {id:`AI-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,name:String(card.name).slice(0,50),description:String(card.description||'بطاقة مولدة بالذكاء الاصطناعي.').slice(0,180),effectType:card.effectType,power:Math.max(1,Math.min(3,Number(card.power)||1)),targetRequired:Boolean(card.targetRequired),cooldown:Math.max(1,Math.min(4,Number(card.cooldown)||2)),rarity:String(card.rarity||'نادرة').slice(0,20)}; } catch { return fallbackCard(); } finally { clearTimeout(timer); } }
 async function aiJudge(payload) {
   const key = process.env.OPENROUTER_KEY;
   if (!key) return null;
@@ -52,18 +55,20 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
   const body = req.body || {}; const action = body.action;
   if (action === 'ai_status') return res.status(200).json({ enabled: Boolean(process.env.OPENROUTER_KEY), model: DEFAULT_MODEL });
+  if (action === 'generate_card') { const player = body.player || {}; if (Number(player.reputation) < 3 || Number(player.shopCooldown) > 0) return res.status(400).json({error:'CARD_PURCHASE_NOT_ALLOWED'}); const card = await generateCard({ round: body.round || 1, existingCards: body.existingCards || [], reputation: player.reputation }); return res.status(200).json({ card, aiUsed: Boolean(process.env.OPENROUTER_KEY) }); }
   if (action === 'resolve_round') {
     let players = cleanState(body.players || []); const map = idMap(players); const messages = clone(body.pendingMessages || {}); const actions = Array.isArray(body.actions) ? body.actions : []; const publicReveals = []; const crimes = []; const before = players.map(p => p.reputation);
     for (const raw of actions) {
-      const pi = map.get(String(raw.playerId)); const ti = raw.targetId == null ? null : map.get(String(raw.targetId)); const p = players[pi]; const card = String(raw.cardId || ''); const rule = CARD_RULES[card];
-      if (pi == null || !active(p) || !rule || p.cooldowns[card] > 0 || (p.inventory[card] || 0) <= 0) continue;
-      if (card !== 'BOOST' && card !== 'SECRET_MSG' && card !== 'INTERROGATE' && card !== 'FORCE_REVEAL' && (ti == null || ti === pi || !active(players[ti]))) continue;
+      const pi = map.get(String(raw.playerId)); const ti = raw.targetId == null ? null : map.get(String(raw.targetId)); const p = players[pi]; const card = String(raw.cardId || ''); const rule = CARD_RULES[card]; const generated = raw.generatedCard || {}; const inventoryKey = card === 'AI_CARD' ? String(generated.id || '') : card;
+      if (pi == null || !active(p) || !rule || !inventoryKey || p.cooldowns[inventoryKey] > 0 || (p.inventory[inventoryKey] || 0) <= 0) continue;
+      if (card !== 'BOOST' && card !== 'SECRET_MSG' && card !== 'INTERROGATE' && card !== 'FORCE_REVEAL' && !(card === 'AI_CARD' && ['REPUTATION_GAIN','SHIELD'].includes(generated.effectType)) && (ti == null || ti === pi || !active(players[ti]))) continue;
       if ((card === 'SECRET_MSG' || card === 'INTERROGATE' || card === 'FORCE_REVEAL' || rule.crime) && ti == null) continue;
-      p.inventory[card]--; p.cooldowns[card] = rule.cooldown;
+      p.inventory[inventoryKey]--; p.cooldowns[inventoryKey] = rule.cooldown;
       if (card === 'SECRET_MSG') addMessage(messages, players[ti].id, { kind: 'message', senderId: p.id, senderName: p.name, text: String(raw.text || 'رسالة غامضة').slice(0, 300) });
       if (card === 'ATTACK') { players[ti].reputation = Math.max(0, players[ti].reputation - 3); crimes.push({ culpritId: p.id, type: card, targetName: players[ti].name }); }
       if (card === 'STEAL') { const amount = Math.min(2, players[ti].reputation); players[ti].reputation -= amount; p.reputation += amount; crimes.push({ culpritId: p.id, type: card, targetName: players[ti].name }); }
       if (card === 'BOOST') p.reputation += rule.gain;
+      if (card === 'AI_CARD') { const power=Math.max(1,Math.min(3,Number(generated.power)||1)); if(generated.effectType==='SHIELD')p.shieldRounds=1; if(generated.effectType==='REPUTATION_LOSS') players[ti].reputation=Math.max(0,players[ti].reputation-power); if(generated.effectType==='STEAL'){const amount=Math.min(power,players[ti].reputation);players[ti].reputation-=amount;p.reputation+=amount;} if(generated.effectType==='REPUTATION_GAIN')p.reputation+=power; if(generated.effectType==='MESSAGE')addMessage(messages,players[ti].id,{kind:'ai-card',senderName:p.name,text:String(generated.description||'وصل أثر بطاقة مولدة.').slice(0,300)}); if(generated.effectType==='INVESTIGATE')addMessage(messages,p.id,{kind:'ai-card',senderName:'نتيجة بطاقة مولدة',text:`الهدف ${players[ti].name} يملك ${players[ti].reputation} سمعة.`}); }
       if (card === 'INTERROGATE') { const targetAct = actions.find(a => String(a.playerId) === String(players[ti].id) && ['ATTACK', 'STEAL'].includes(a.cardId)); addMessage(messages, p.id, { kind: 'intel', senderName: 'نتيجة الاستجواب', text: targetAct ? `نعم، ${players[ti].name} ارتكب جريمة هذا الدور.` : `لا، لم يرتكب ${players[ti].name} جريمة هذا الدور.`, warning: 'هذه معلومة سرية.' }); }
       if (card === 'FORCE_REVEAL') publicReveals.push({ askerName: p.name, targetName: players[ti].name, inventory: clone(players[ti].inventory) });
     }
