@@ -2,9 +2,11 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
   const { action } = req.body;
+  const OPENROUTER_KEY = process.env.OPENROUTER_KEY || '';
+  // لا يُرسل المفتاح إلى المتصفح؛ وجوده اختياري ولا يعطل اللعبة عند غيابه.
 
   const ALLIANCE_DURATION = 4;
-  const ALLIANCE_OFFER_CHANCE = 0.2;
+  const ALLIANCE_OFFER_CHANCE = 0.45;
 
   // ------------------------------------------------------------------
   // أدوات مساعدة
@@ -35,6 +37,12 @@ export default async function handler(req, res) {
   // ------------------------------------------------------------------
   if (action === 'resolve_round') {
     let { players, actions, pendingMessages } = req.body;
+    const indexById = new Map(players.map((p, i) => [String(p.id), i]));
+    actions = (actions || []).map(act => ({
+      ...act,
+      playerIdx: act.playerId != null && indexById.has(String(act.playerId)) ? indexById.get(String(act.playerId)) : act.playerIdx,
+      targetIdx: act.targetId != null && indexById.has(String(act.targetId)) ? indexById.get(String(act.targetId)) : act.targetIdx
+    }));
     let newMessages = { ...pendingMessages };
     let detectedCrimes = [];
     let publicReveals = [];
@@ -48,8 +56,9 @@ export default async function handler(req, res) {
       if (p.reputation <= 0) return;
 
       if (act.card.id === 'SECRET_MSG' && act.targetIdx !== null) {
-        if (!newMessages[act.targetIdx]) newMessages[act.targetIdx] = [];
-        newMessages[act.targetIdx].push({ senderName: p.name, text: act.customText || 'رسالة غامضة...' });
+        const targetKey = String(players[act.targetIdx].id);
+        if (!newMessages[targetKey]) newMessages[targetKey] = [];
+        newMessages[targetKey].push({ senderName: p.name, senderId: p.id, text: act.customText || 'رسالة غامضة...' });
       }
       else if (act.card.id === 'ATTACK' && act.targetIdx !== null) {
         let target = players[act.targetIdx];
@@ -81,8 +90,9 @@ export default async function handler(req, res) {
         ? `نعم، [${target.name}] ارتكب جريمة (${crimeAction.card.id === 'ATTACK' ? 'إدانة هجومية' : 'سرقة نفوذ'}) هذه الجولة.`
         : `لا، لم يرتكب [${target.name}] أي جريمة (هجوم أو سرقة) هذه الجولة.`;
 
-      if (!newMessages[act.playerIdx]) newMessages[act.playerIdx] = [];
-      newMessages[act.playerIdx].push({
+      const askerKey = String(asker.id);
+      if (!newMessages[askerKey]) newMessages[askerKey] = [];
+      newMessages[askerKey].push({
         senderName: '🕵️ نتيجة الاستجواب',
         text: answerText,
         warning: 'ممنوع تصرّح إنك تملك هذه المعلومة.'
@@ -163,6 +173,17 @@ export default async function handler(req, res) {
       else if (changeB > 0) p.reputation += Math.floor(changeB / 2);
     });
 
+    // مكافأة التعاون: التحالف الفعال يمنح كل طرف سمعة إضافية إذا لم يستخدم أي منهما هجومًا أو سرقة.
+    players.forEach((p, i) => {
+      const allyIdx = p.allyIdx;
+      if (allyIdx == null || i > allyIdx || !players[allyIdx] || players[allyIdx].allyIdx !== i) return;
+      const pair = actions.filter(a => a.playerIdx === i || a.playerIdx === allyIdx);
+      if (pair.length && pair.every(a => !['ATTACK', 'STEAL'].includes(a.card.id))) {
+        p.reputation += 1;
+        players[allyIdx].reputation += 1;
+      }
+    });
+
     // 6. فسخ تحالف أي لاعب أُقصي هذه الجولة (يفسخ الطرف الآخر أيضاً)
     players.forEach((p, i) => {
       if (p.reputation <= 0 && p.allyIdx !== null && p.allyIdx !== undefined) {
@@ -205,7 +226,8 @@ export default async function handler(req, res) {
         ? `⚖️ قضية الجولة: تعرض [${crime.targetName}] لإدانة وهجوم سري! من الفاعل؟`
         : `⚖️ قضية الجولة: تمت سرقة نفوذ وسمعة من [${crime.targetName}]! من السارق؟`;
 
-      const accurate = Math.random() < 0.65;
+      const accuracyBase = Math.max(0.45, Math.min(0.85, 0.65 + (players[crime.culpritIdx]?.reputation || 0) / 100));
+      const accurate = Math.random() < accuracyBase;
       let suspectIdx = crime.culpritIdx;
       if (!accurate) {
         const redHerring = weightedPickByReputation(players, crime.culpritIdx);
@@ -213,13 +235,14 @@ export default async function handler(req, res) {
       }
       const suspectName = players[suspectIdx]?.name;
       if (suspectName) {
+        courtCase.confidence = Math.round(accurate ? accuracyBase * 100 : (1 - accuracyBase) * 100);
         courtCase.clueText = `🔍 دليل غامض: يبدو أن سمعة [${suspectName}] كانت مرتفعة بشكل لافت وقت الحادثة... (الدليل قد يكون مضللاً)`;
       }
     } else {
       courtCase.title = `⚖️ قضية الجولة: تسود المحكمة أجواء هادئة... هل يوجد مجرم خفي أم لا أحد؟`;
     }
 
-    return res.status(200).json({ players, pendingMessages: newMessages, randomEvent, courtCase, publicReveals });
+    return res.status(200).json({ players, pendingMessages: newMessages, randomEvent, courtCase, publicReveals, aiEnabled: Boolean(OPENROUTER_KEY) });
   }
 
   // ------------------------------------------------------------------
@@ -273,7 +296,12 @@ export default async function handler(req, res) {
       }
     }
 
-    return res.status(200).json({ players, verdictMsg, tally });
+    const finalEvidence = {
+      confidence: trueCulpritIdx === null ? 80 : 65,
+      conclusion: trueCulpritIdx === null ? 'لا توجد جريمة مؤكدة في هذه الجولة.' : `المتهم الحقيقي هو ${players[trueCulpritIdx]?.name || 'غير معروف'}.`,
+      note: 'هذه النسبة تقديرية وليست يقينًا مطلقًا؛ تتأثر بجودة الدليل ونتائج التصويت.'
+    };
+    return res.status(200).json({ players, verdictMsg, tally, finalEvidence });
   }
 
   return res.status(400).json({ error: 'Unknown action' });
